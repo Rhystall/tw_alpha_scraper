@@ -92,9 +92,12 @@ async def manual_add_account():
         # Verify by checking account status
         accounts = await api.pool.accounts_info()
         for acc in accounts:
-            if acc.username == username:
-                logger.info(f"Account status - Active: {acc.active}, Logged in: {acc.logged_in}")
-                break
+            acc_username = acc.get("username") if isinstance(acc, dict) else acc.username
+            if acc_username == username:
+                if isinstance(acc, dict):
+                    logger.info(f"Account status - Active: {acc.get('active')}")
+                else:
+                    logger.info(f"Account status - Active: {acc.active}")
                 
     except Exception as e:
         logger.error(f"Failed to add account: {e}")
