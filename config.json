@@ -1,0 +1,7 @@
+{
+    "discord_webhook_url": "YOUR_DISCORD_WEBHOOK_URL",
+    "poll_interval": 300,
+    "targets": [
+        "44196397"
+    ]
+}
