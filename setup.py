@@ -11,7 +11,7 @@ async def add_account():
     email_password = input("Email Password: ")
     
     api = API()
-await api.pool.add_account(username, password, email, email_password)
+    await api.pool.add_account(username, password, email, email_password)
     logger.success(f"Added account: {username}")
 
 async def login_accounts():
