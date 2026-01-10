@@ -2,3 +2,5 @@ twscrape
 discord-webhook
 loguru
 curl_cffi
+playwright
+playwright-stealth
