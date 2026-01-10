@@ -11,14 +11,30 @@ Requirements:
 
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_sync
 from twscrape import API
 from loguru import logger
 
+# Try to import stealth, fallback to manual implementation if not available
+try:
+    from playwright_stealth import stealth_async
+    HAS_STEALTH = True
+except ImportError:
+    HAS_STEALTH = False
+    logger.warning("playwright_stealth not available, using manual stealth")
+
 
 async def apply_stealth(page):
-    """Apply stealth to page (wrapper for sync function)."""
-    stealth_sync(page)
+    """Apply stealth settings to evade bot detection."""
+    if HAS_STEALTH:
+        await stealth_async(page)
+    else:
+        # Manual stealth - hide webdriver detection
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            window.chrome = { runtime: {} };
+        """)
 
 
 async def wait_and_fill(page, selector: str, value: str, timeout: int = 30000):
