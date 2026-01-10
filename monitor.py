@@ -2,6 +2,40 @@ import asyncio
 import json
 import random
 import os
+import re
+
+# ============================================================
+# MONKEY PATCH FIX for "Failed to parse scripts" error
+# See: https://github.com/vladkens/twscrape/issues/287
+# This must be applied BEFORE importing twscrape.API
+# ============================================================
+def script_url(k: str, v: str):
+    return f"https://abs.twimg.com/responsive-web/client-web/{k}.{v}.js"
+
+def patched_get_scripts_list(text: str):
+    try:
+        scripts = text.split('e=>e+"."+')[1].split('[e]+"a.js"')[0]
+    except IndexError:
+        return
+    
+    try:
+        for k, v in json.loads(scripts).items():
+            yield script_url(k, f"{v}a")
+    except json.decoder.JSONDecodeError:
+        # Fix all unquoted keys - more aggressive pattern
+        fixed_scripts = re.sub(
+            r'([,\{])(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*):',
+            r'\1\2"\3"\4:',
+            scripts
+        )
+        for k, v in json.loads(fixed_scripts).items():
+            yield script_url(k, f"{v}a")
+
+# Apply monkey patch
+from twscrape import xclid
+xclid.get_scripts_list = patched_get_scripts_list
+# ============================================================
+
 from twscrape import API
 from discord_webhook import DiscordWebhook, DiscordEmbed
 from loguru import logger
