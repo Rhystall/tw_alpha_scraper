@@ -11,9 +11,14 @@ Requirements:
 
 import asyncio
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth_sync
 from twscrape import API
 from loguru import logger
+
+
+async def apply_stealth(page):
+    """Apply stealth to page (wrapper for sync function)."""
+    stealth_sync(page)
 
 
 async def wait_and_fill(page, selector: str, value: str, timeout: int = 30000):
@@ -164,7 +169,7 @@ async def playwright_login():
         page = await context.new_page()
         
         # Apply stealth
-        await stealth_async(page)
+        await apply_stealth(page)
         
         try:
             # Navigate to login
