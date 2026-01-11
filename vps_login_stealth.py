@@ -223,20 +223,40 @@ async def playwright_login():
             await page.keyboard.press("Enter")
             await asyncio.sleep(3)
             
+            # Screenshot after username
+            await page.screenshot(path="debug_02_after_username.png")
+            logger.info("Screenshot saved: debug_02_after_username.png")
+            
             # Check for challenges after username
             challenge = await check_for_challenge(page)
             if challenge:
                 await handle_challenge(page, challenge)
+                await asyncio.sleep(2)
+            
+            # Twitter often asks for email/username verification before password
+            # Check if there's a text input (not password)
+            text_input = await page.query_selector('input[name="text"]')
+            if text_input:
+                print("\n" + "=" * 50)
+                print("⚠️  TWITTER VERIFICATION STEP")
+                print("Twitter is asking for additional info (usually email or username).")
+                print("Check screenshot: debug_02_after_username.png")
+                print("=" * 50)
+                verify_value = input("Enter requested info (email/username/@handle): ").strip()
+                await page.fill('input[name="text"]', verify_value)
+                await page.keyboard.press("Enter")
+                await asyncio.sleep(3)
+                await page.screenshot(path="debug_03_after_verification.png")
             
             # Step 2: Enter password
             logger.info("Entering password...")
             try:
-                await wait_and_fill(page, 'input[name="password"]', password, timeout=10000)
+                await wait_and_fill(page, 'input[name="password"]', password, timeout=15000)
                 await page.keyboard.press("Enter")
                 await asyncio.sleep(5)
             except PlaywrightTimeout:
-                await page.screenshot(path="debug_02_password_issue.png")
-                logger.error("Password field not found. Check debug_02_password_issue.png")
+                await page.screenshot(path="debug_04_password_issue.png")
+                logger.error("Password field not found. Check debug_04_password_issue.png")
                 raise
             
             # Check for 2FA
