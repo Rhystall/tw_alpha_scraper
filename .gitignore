@@ -1,0 +1,34 @@
+# Config files with secrets
+config.json
+
+# Database
+accounts.db
+*.db
+
+# State files
+state.json
+
+# Logs
+*.log
+
+# Debug screenshots
+debug_*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
