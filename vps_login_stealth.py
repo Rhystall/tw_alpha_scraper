@@ -227,37 +227,65 @@ async def playwright_login():
             await page.screenshot(path="debug_02_after_username.png")
             logger.info("Screenshot saved: debug_02_after_username.png")
             
-            # Check for challenges after username
-            challenge = await check_for_challenge(page)
-            if challenge:
-                await handle_challenge(page, challenge)
+            # Loop to handle multiple verification steps until password field appears
+            max_verification_attempts = 5
+            password_found = False
+            
+            for step in range(max_verification_attempts):
+                await asyncio.sleep(2)
+                
+                # Check if password field is now visible
+                password_field = await page.query_selector('input[name="password"]')
+                if password_field:
+                    password_found = True
+                    break
+                
+                # Take screenshot
+                await page.screenshot(path=f"debug_step_{step+1}.png")
+                logger.info(f"Step {step+1}: Screenshot saved as debug_step_{step+1}.png")
+                
+                # Check for known challenges
+                challenge = await check_for_challenge(page)
+                if challenge:
+                    await handle_challenge(page, challenge)
+                    continue
+                
+                # Check for generic text input (Twitter asks for email/phone/username)
+                text_input = await page.query_selector('input[name="text"]')
+                if text_input:
+                    print("\n" + "=" * 50)
+                    print(f"⚠️  VERIFICATION STEP {step+1}")
+                    print("Twitter is asking for additional info.")
+                    print(f"Screenshot: debug_step_{step+1}.png")
+                    print("")
+                    print("Usually Twitter asks for:")
+                    print("  - Your EMAIL: rhystall12@gmail.com")
+                    print("  - Or your @HANDLE: 0xTr4ce")
+                    print("  - Or phone number")
+                    print("=" * 50)
+                    verify_value = input("Enter the requested info: ").strip()
+                    await page.fill('input[name="text"]', verify_value)
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(3)
+                    continue
+                
+                # No recognized input found
+                logger.warning(f"Step {step+1}: No input field found, waiting...")
                 await asyncio.sleep(2)
             
-            # Twitter often asks for email/username verification before password
-            # Check if there's a text input (not password)
-            text_input = await page.query_selector('input[name="text"]')
-            if text_input:
-                print("\n" + "=" * 50)
-                print("⚠️  TWITTER VERIFICATION STEP")
-                print("Twitter is asking for additional info (usually email or username).")
-                print("Check screenshot: debug_02_after_username.png")
-                print("=" * 50)
-                verify_value = input("Enter requested info (email/username/@handle): ").strip()
-                await page.fill('input[name="text"]', verify_value)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(3)
-                await page.screenshot(path="debug_03_after_verification.png")
+            if not password_found:
+                await page.screenshot(path="debug_final_no_password.png")
+                logger.error("Password field never appeared. Check debug_final_no_password.png")
+                raise Exception("Could not reach password field after verification steps")
             
             # Step 2: Enter password
-            logger.info("Entering password...")
-            try:
-                await wait_and_fill(page, 'input[name="password"]', password, timeout=15000)
-                await page.keyboard.press("Enter")
-                await asyncio.sleep(5)
-            except PlaywrightTimeout:
-                await page.screenshot(path="debug_04_password_issue.png")
-                logger.error("Password field not found. Check debug_04_password_issue.png")
-                raise
+            logger.info("Password field found! Entering password...")
+            await page.fill('input[name="password"]', password)
+            await page.keyboard.press("Enter")
+            await asyncio.sleep(5)
+            
+            # Screenshot after password
+            await page.screenshot(path="debug_after_password.png")
             
             # Check for 2FA
             challenge = await check_for_challenge(page)
