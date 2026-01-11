@@ -59,6 +59,11 @@ async def manual_add_account():
     print("Get these from browser DevTools -> Application -> Cookies -> x.com\n")
     cookie_string = input("Paste Cookie String: ").strip()
     
+    print("\n--- Proxy Configuration (IMPORTANT for VPS) ---")
+    print("Format: http://user:pass@ip:port")
+    print("Leave EMPTY if cookies were obtained from VPS IP directly.")
+    proxy_string = input("Proxy String: ").strip()
+    
     # Parse and validate cookies
     try:
         parsed_cookies = parse_cookies(cookie_string)
@@ -76,16 +81,27 @@ async def manual_add_account():
     except Exception:
         logger.debug(f"No existing account found for: {username}")
     
-    # Step 2: Add account with cookies
+    # Step 2: Add account with cookies and proxy
     logger.info(f"Adding account '{username}' with provided cookies...")
     try:
-        await api.pool.add_account(
-            username=username,
-            password=password,
-            email=email,
-            email_password=email_password,
-            cookies=parsed_cookies
-        )
+        if proxy_string:
+            await api.pool.add_account(
+                username=username,
+                password=password,
+                email=email,
+                email_password=email_password,
+                cookies=parsed_cookies,
+                proxy=proxy_string
+            )
+            logger.info(f"Account bound to proxy: {proxy_string.split('@')[-1] if '@' in proxy_string else proxy_string}")
+        else:
+            await api.pool.add_account(
+                username=username,
+                password=password,
+                email=email,
+                email_password=email_password,
+                cookies=parsed_cookies
+            )
         logger.success(f"Successfully added account: {username}")
         logger.info("Account is ready to use. No login required!")
         
