@@ -162,6 +162,12 @@ async def playwright_login():
     email = input("Email (for twscrape): ").strip()
     email_pass = input("Email Password (for twscrape): ").strip()
     
+    # Get proxy
+    print("\n--- Proxy Configuration (Recommended) ---")
+    print("Format: http://user:pass@ip:port")
+    print("Leave empty to skip proxy.")
+    proxy_string = input("Proxy String: ").strip()
+    
     print("\n🔄 Launching stealth browser...")
     
     async with async_playwright() as p:
@@ -176,11 +182,25 @@ async def playwright_login():
             ]
         )
         
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="en-US",
-        )
+        # Configure proxy if provided
+        context_options = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "locale": "en-US",
+        }
+        
+        if proxy_string:
+            # Parse proxy string: http://user:pass@ip:port
+            from urllib.parse import urlparse
+            parsed = urlparse(proxy_string)
+            context_options["proxy"] = {
+                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
+                "username": parsed.username,
+                "password": parsed.password,
+            }
+            logger.info(f"Using proxy: {parsed.hostname}:{parsed.port}")
+        
+        context = await browser.new_context(**context_options)
         
         page = await context.new_page()
         
