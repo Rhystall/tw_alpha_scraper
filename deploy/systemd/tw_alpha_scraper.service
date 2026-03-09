@@ -1,0 +1,16 @@
+[Unit]
+Description=tw_alpha_scraper Discord-first alpha monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tw_alpha_scraper
+Environment=TW_ALPHA_CONFIG_PATH=/opt/tw_alpha_scraper/config.json
+Environment=TW_ALPHA_ENV_PATH=/opt/tw_alpha_scraper/.env
+ExecStart=/opt/tw_alpha_scraper/.venv/bin/python -m tw_alpha_scraper run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

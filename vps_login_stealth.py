@@ -1,347 +1,139 @@
-"""
-vps_login_stealth.py - Playwright-based Twitter login with stealth mode.
-
-Bypasses Cloudflare 403 blocks by using a real headless browser with
-stealth fingerprinting. Extracts cookies and saves them to twscrape.
-
-Requirements:
-    pip install playwright playwright-stealth
-    playwright install chromium
-"""
-
 import asyncio
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
-from twscrape import API
-from loguru import logger
+from getpass import getpass
+from urllib.parse import urlparse
 
-# Try to import stealth, fallback to manual implementation if not available
+
 try:
     from playwright_stealth import stealth_async
-    HAS_STEALTH = True
-except ImportError:
-    HAS_STEALTH = False
-    logger.warning("playwright_stealth not available, using manual stealth")
+except ModuleNotFoundError:
+    stealth_async = None
 
 
-async def apply_stealth(page):
-    """Apply stealth settings to evade bot detection."""
-    if HAS_STEALTH:
+async def apply_stealth(page) -> None:
+    if stealth_async:
         await stealth_async(page)
-    else:
-        # Manual stealth - hide webdriver detection
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            window.chrome = { runtime: {} };
-        """)
+        return
+
+    await page.add_init_script(
+        """
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        window.chrome = { runtime: {} };
+        """
+    )
 
 
-async def wait_and_fill(page, selector: str, value: str, timeout: int = 30000):
-    """Wait for element and fill with value."""
+def parse_proxy(proxy_string: str) -> dict | None:
+    proxy = proxy_string.strip()
+    if not proxy:
+        return None
+    parsed = urlparse(proxy)
+    if not parsed.scheme or not parsed.hostname or not parsed.port:
+        raise ValueError("Proxy must be in the format http://user:pass@host:port")
+
+    proxy_payload = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+    if parsed.username:
+        proxy_payload["username"] = parsed.username
+    if parsed.password:
+        proxy_payload["password"] = parsed.password
+    return proxy_payload
+
+
+async def wait_and_fill(page, selector: str, value: str, timeout: int = 30_000) -> None:
     await page.wait_for_selector(selector, timeout=timeout)
     await page.fill(selector, value)
 
 
-async def check_for_challenge(page) -> str | None:
-    """Check if Twitter is asking for additional verification."""
+async def maybe_handle_text_challenge(page) -> None:
+    text_input = await page.query_selector('input[name="text"]')
+    if not text_input:
+        return
+
+    print("X requested additional verification information.")
+    challenge_value = input("Enter the requested value (email, phone, username, or OTP): ").strip()
+    await page.fill('input[name="text"]', challenge_value)
+    await page.keyboard.press("Enter")
+    await asyncio.sleep(3)
+
+
+async def main() -> None:
     try:
-        # Check for "Unusual login activity" or verification prompts
-        unusual_text = await page.query_selector('text="Verify your identity"')
-        if unusual_text:
-            return "identity"
-        
-        email_text = await page.query_selector('text="Enter your phone number or email"')
-        if email_text:
-            return "email_phone"
-        
-        phone_text = await page.query_selector('text="Enter your phone number"')
-        if phone_text:
-            return "phone"
-            
-        otp_text = await page.query_selector('text="Enter your verification code"')
-        if otp_text:
-            return "otp"
-            
-        auth_app_text = await page.query_selector('text="Enter the code from your authenticator app"')
-        if auth_app_text:
-            return "2fa"
-            
-    except Exception:
-        pass
-    return None
+        from playwright.async_api import TimeoutError as PlaywrightTimeout
+        from playwright.async_api import async_playwright
+    except ModuleNotFoundError as exc:
+        raise SystemExit("Playwright is not installed. Run `pip install -r requirements.txt` first.") from exc
 
+    username = input("Twitter username (without @): ").strip()
+    password = getpass("Twitter password: ").strip()
+    proxy_string = input("Proxy (http://user:pass@host:port) [optional]: ").strip()
+    proxy = parse_proxy(proxy_string) if proxy_string else None
 
-async def handle_challenge(page, challenge_type: str):
-    """Handle various Twitter security challenges."""
-    if challenge_type == "email_phone":
-        print("\n" + "=" * 50)
-        print("⚠️  UNUSUAL ACTIVITY DETECTED")
-        print("Twitter is asking for your email or phone number.")
-        print("=" * 50)
-        value = input("Enter your email or phone: ").strip()
-        await wait_and_fill(page, 'input[name="text"]', value)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(3)
-        
-    elif challenge_type == "phone":
-        print("\n" + "=" * 50)
-        print("⚠️  PHONE VERIFICATION REQUIRED")
-        print("=" * 50)
-        value = input("Enter your phone number: ").strip()
-        await wait_and_fill(page, 'input[name="text"]', value)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(3)
-        
-    elif challenge_type in ["otp", "2fa"]:
-        print("\n" + "=" * 50)
-        print("🔐 2FA VERIFICATION REQUIRED")
-        print("Enter the code from your authenticator app or SMS.")
-        print("=" * 50)
-        code = input("Enter OTP/2FA code: ").strip()
-        await wait_and_fill(page, 'input[name="text"]', code)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(3)
-        
-    elif challenge_type == "identity":
-        print("\n" + "=" * 50)
-        print("⚠️  IDENTITY VERIFICATION REQUIRED")
-        print("Twitter is asking to verify your identity.")
-        print("=" * 50)
-        value = input("Enter verification info: ").strip()
-        await wait_and_fill(page, 'input[name="text"]', value)
-        await page.keyboard.press("Enter")
-        await asyncio.sleep(3)
+    print("Launching stealth browser. Screenshots are written to debug_*.png if the flow gets stuck.")
 
-
-async def extract_cookies(context) -> dict:
-    """Extract auth cookies from browser context."""
-    cookies = await context.cookies()
-    cookie_dict = {}
-    for cookie in cookies:
-        if cookie["name"] in ["auth_token", "ct0", "guest_id", "twid", "kdt"]:
-            cookie_dict[cookie["name"]] = cookie["value"]
-    return cookie_dict
-
-
-async def cookies_to_string(cookie_dict: dict) -> str:
-    """Convert cookie dict to string format."""
-    return "; ".join([f"{k}={v}" for k, v in cookie_dict.items()])
-
-
-async def save_to_twscrape(username: str, password: str, email: str, email_pass: str, cookie_str: str):
-    """Save account with cookies to twscrape database."""
-    api = API()
-    
-    # Delete existing account if any
-    try:
-        await api.pool.delete_accounts([username])
-        logger.warning(f"Deleted existing account: {username}")
-    except Exception:
-        pass
-    
-    # Add account with cookies
-    await api.pool.add_account(
-        username=username,
-        password=password,
-        email=email,
-        email_password=email_pass,
-        cookies=cookie_str
-    )
-    logger.success(f"Account {username} saved to twscrape with cookies!")
-
-
-async def playwright_login():
-    print("\n" + "=" * 60)
-    print("   🚀 VPS STEALTH LOGIN - Playwright + Stealth Mode")
-    print("=" * 60 + "\n")
-    
-    # Get credentials
-    username = input("Twitter Username (without @): ").strip()
-    password = input("Twitter Password: ").strip()
-    email = input("Email (for twscrape): ").strip()
-    email_pass = input("Email Password (for twscrape): ").strip()
-    
-    # Get proxy
-    print("\n--- Proxy Configuration (Recommended) ---")
-    print("Format: http://user:pass@ip:port")
-    print("Leave empty to skip proxy.")
-    proxy_string = input("Proxy String: ").strip()
-    
-    print("\n🔄 Launching stealth browser...")
-    
-    async with async_playwright() as p:
-        # Launch browser with stealth settings
-        browser = await p.chromium.launch(
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(
             headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
-            ]
+            ],
+            proxy=proxy,
         )
-        
-        # Configure proxy if provided
-        context_options = {
-            "viewport": {"width": 1920, "height": 1080},
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "locale": "en-US",
-        }
-        
-        if proxy_string:
-            # Parse proxy string: http://user:pass@ip:port
-            from urllib.parse import urlparse
-            parsed = urlparse(proxy_string)
-            context_options["proxy"] = {
-                "server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}",
-                "username": parsed.username,
-                "password": parsed.password,
-            }
-            logger.info(f"Using proxy: {parsed.hostname}:{parsed.port}")
-        
-        context = await browser.new_context(**context_options)
-        
+        context = await browser.new_context(
+            viewport={"width": 1440, "height": 900},
+            locale="en-US",
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+        )
         page = await context.new_page()
-        
-        # Apply stealth
         await apply_stealth(page)
-        
+
         try:
-            # Navigate to login
-            logger.info("Navigating to Twitter login...")
             await page.goto("https://x.com/i/flow/login", wait_until="networkidle")
-            await asyncio.sleep(3)
-            
-            # Screenshot for debugging
             await page.screenshot(path="debug_01_login_page.png")
-            logger.info("Screenshot saved: debug_01_login_page.png")
-            
-            # Step 1: Enter username
-            logger.info("Entering username...")
+
             await wait_and_fill(page, 'input[autocomplete="username"]', username)
             await page.keyboard.press("Enter")
             await asyncio.sleep(3)
-            
-            # Screenshot after username
-            await page.screenshot(path="debug_02_after_username.png")
-            logger.info("Screenshot saved: debug_02_after_username.png")
-            
-            # Loop to handle multiple verification steps until password field appears
-            max_verification_attempts = 5
-            password_found = False
-            
-            for step in range(max_verification_attempts):
-                await asyncio.sleep(2)
-                
-                # Check if password field is now visible
+
+            for attempt in range(5):
                 password_field = await page.query_selector('input[name="password"]')
                 if password_field:
-                    password_found = True
                     break
-                
-                # Take screenshot
-                await page.screenshot(path=f"debug_step_{step+1}.png")
-                logger.info(f"Step {step+1}: Screenshot saved as debug_step_{step+1}.png")
-                
-                # Check for known challenges
-                challenge = await check_for_challenge(page)
-                if challenge:
-                    await handle_challenge(page, challenge)
-                    continue
-                
-                # Check for generic text input (Twitter asks for email/phone/username)
-                text_input = await page.query_selector('input[name="text"]')
-                if text_input:
-                    print("\n" + "=" * 50)
-                    print(f"⚠️  VERIFICATION STEP {step+1}")
-                    print("Twitter is asking for additional info.")
-                    print(f"Screenshot: debug_step_{step+1}.png")
-                    print("")
-                    print("Usually Twitter asks for:")
-                    print("  - Your EMAIL: rhystall12@gmail.com")
-                    print("  - Or your @HANDLE: 0xTr4ce")
-                    print("  - Or phone number")
-                    print("=" * 50)
-                    verify_value = input("Enter the requested info: ").strip()
-                    await page.fill('input[name="text"]', verify_value)
-                    await page.keyboard.press("Enter")
-                    await asyncio.sleep(3)
-                    continue
-                
-                # No recognized input found
-                logger.warning(f"Step {step+1}: No input field found, waiting...")
+                await page.screenshot(path=f"debug_step_{attempt + 1}.png")
+                await maybe_handle_text_challenge(page)
                 await asyncio.sleep(2)
-            
-            if not password_found:
-                await page.screenshot(path="debug_final_no_password.png")
-                logger.error("Password field never appeared. Check debug_final_no_password.png")
-                raise Exception("Could not reach password field after verification steps")
-            
-            # Step 2: Enter password
-            logger.info("Password field found! Entering password...")
+            else:
+                raise RuntimeError("Password field never appeared. Check debug screenshots.")
+
             await page.fill('input[name="password"]', password)
             await page.keyboard.press("Enter")
             await asyncio.sleep(5)
-            
-            # Screenshot after password
-            await page.screenshot(path="debug_after_password.png")
-            
-            # Check for 2FA
-            challenge = await check_for_challenge(page)
-            if challenge:
-                await handle_challenge(page, challenge)
-            
-            # Wait for successful login
-            logger.info("Waiting for login to complete...")
+
             try:
-                await page.wait_for_url("**/home**", timeout=30000)
+                await page.wait_for_url("**/home**", timeout=30_000)
             except PlaywrightTimeout:
-                # Check if we're stuck on a challenge
-                challenge = await check_for_challenge(page)
-                if challenge:
-                    await handle_challenge(page, challenge)
-                    await page.wait_for_url("**/home**", timeout=30000)
-                else:
-                    await page.screenshot(path="debug_03_login_stuck.png")
-                    logger.error("Login seems stuck. Check debug_03_login_stuck.png")
-                    raise
-            
-            logger.success("✅ Login successful!")
-            await page.screenshot(path="debug_success.png")
-            
-            # Extract cookies
-            logger.info("Extracting cookies...")
-            cookie_dict = await extract_cookies(context)
-            
-            if "auth_token" not in cookie_dict or "ct0" not in cookie_dict:
-                logger.error("Required cookies not found!")
-                logger.error(f"Found cookies: {list(cookie_dict.keys())}")
-                raise Exception("Missing auth_token or ct0 cookie")
-            
-            cookie_str = await cookies_to_string(cookie_dict)
-            logger.info(f"Cookies extracted: {list(cookie_dict.keys())}")
-            
-            # Save to twscrape
-            await save_to_twscrape(username, password, email, email_pass, cookie_str)
-            
-            print("\n" + "=" * 60)
-            print("   ✅ SUCCESS! Account ready for monitor.py")
-            print("=" * 60)
-            print("\nRun: python monitor.py")
-            
-        except Exception as e:
-            await page.screenshot(path="debug_error.png")
-            logger.error(f"Login failed: {e}")
-            logger.error("Check debug_error.png for details")
-            raise
+                await page.screenshot(path="debug_login_timeout.png")
+                await maybe_handle_text_challenge(page)
+                await page.wait_for_url("**/home**", timeout=30_000)
+
+            cookies = await context.cookies()
+            auth_token = next((cookie["value"] for cookie in cookies if cookie["name"] == "auth_token"), None)
+            ct0 = next((cookie["value"] for cookie in cookies if cookie["name"] == "ct0"), None)
+
+            if auth_token and ct0:
+                print("Login succeeded. Use this cookie string with `python setup.py manual-add`:")
+                print(f"auth_token={auth_token}; ct0={ct0}")
+            else:
+                raise RuntimeError("Login succeeded but auth_token/ct0 were not present.")
         finally:
             await browser.close()
-
-
-async def main():
-    logger.add("vps_login.log", rotation="10 MB")
-    await playwright_login()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tw-alpha-scraper"
+version = "0.1.0"
+description = "Discord-first Twitter follow monitor for private alpha tracking"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+tw-alpha-scraper = "tw_alpha_scraper.cli:main"
+
+[tool.setuptools]
+packages = ["tw_alpha_scraper"]

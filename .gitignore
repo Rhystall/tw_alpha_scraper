@@ -1,15 +1,18 @@
 # Config files with secrets
 config.json
+.env
 
 # Database
 accounts.db
 *.db
+data/
 
 # State files
 state.json
 
 # Logs
 *.log
+logs/
 
 # Debug screenshots
 debug_*.png
@@ -22,6 +25,10 @@ __pycache__/
 .Python
 venv/
 ENV/
+.venv/
+.venv*/
+.pytest_cache/
+.coverage
 
 # IDE
 .vscode/

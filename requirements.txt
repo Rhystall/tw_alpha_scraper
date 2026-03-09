@@ -1,6 +1,6 @@
-twscrape
-discord-webhook
-loguru
-curl_cffi
-playwright
-playwright-stealth
+twscrape==0.15.0
+discord.py==2.4.0
+playwright==1.49.0
+playwright-stealth==1.0.6
+pytest==8.3.4
+pytest-asyncio==0.24.0
