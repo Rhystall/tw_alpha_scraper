@@ -1,29 +1,38 @@
-# tw_alpha_scraper
+# 🐦 tw_alpha_scraper
 
-`tw_alpha_scraper` is a Discord-first Twitter/X follow monitor for private alpha tracking. It watches the accounts that a target user follows, stores every unique follow event in SQLite, and pushes alerts to Discord. A small Discord admin bot manages targets and runtime state on a single VPS.
+`tw_alpha_scraper` is a Discord-first Twitter/X follow monitor for private alpha tracking. It watches the accounts that a target user (e.g., influencers, founders) follows, stores every unique follow event in an SQLite database, and pushes real-time alerts to a Discord webhook. A built-in Discord admin bot manages targets and runtime state directly from your server.
 
-## What Changed
+## 🌟 Features
 
-- Core logic now lives in the `tw_alpha_scraper/` package instead of ad hoc scripts.
-- Persistence moved from `state.json` to SQLite for targets, follow events, monitor state, worker health, and admin audit logs.
-- Runtime is one asyncio service with:
-  - monitor loop
-  - Discord slash-command admin bot
-  - Discord webhook alerts
-- Legacy scripts remain as wrappers so old workflows still work while pointing to the new app.
+- **Real-time Follow Monitoring**: Track when target accounts follow new users.
+- **Discord Bot Management**: Use Slash Commands (`/status`, `/targets add`) directly in Discord.
+- **Discord Webhook Alerts**: Instant notifications with rich embeds and anti-403 User-Agent protections.
+- **Resilient Polling**: Built-in retry logic, timeout protection, and jitter to avoid rate limits.
+- **Cookie Injection**: Bypass Twitter/Cloudflare VPS login blocks via local cookie injection.
+- **SQLite Persistence**: Robust data tracking for targets, events, and worker health.
+- **Production Ready**: Includes `systemd` service configuration for 24/7 VPS deployment.
 
-## Architecture
+---
 
-- `config.py`: loads nested `config.json` plus secret overrides from `.env`
-- `storage.py`: SQLite schema and persistence helpers
-- `service.py`: monitor scheduler, bootstrap logic, dedupe, retries, and admin actions
-- `bot.py`: Discord slash commands for `/status`, `/targets list`, `/targets add`, `/targets remove`, `/pause`, `/resume`
-- `twitter.py`: `twscrape` integration and worker account access
-- `accounts.py`: interactive worker account management
+## 🛠️ 1. Discord Bot Setup (CRITICAL)
 
-## Setup
+Before running the scraper, you must create a Discord Bot and configure it correctly:
 
-### 1. Install dependencies
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a New Application.
+2. Go to the **Bot** tab, copy the **Token**.
+3. **Turn on Intents**: Scroll down to *Privileged Gateway Intents* and enable **Message Content Intent**, **Presence Intent**, and **Server Members Intent**. Save changes.
+4. Go to the **OAuth2 > General** tab, and **Disable** "Require OAuth2 Code Grant".
+5. Go to **OAuth2 > URL Generator**:
+   - Scopes: Select `bot` AND `applications.commands`.
+   - Bot Permissions: Select `Send Messages`, `Embed Links`, `Read Messages/View Channels`.
+6. Copy the generated URL at the bottom, paste it into your browser, and authorize the bot to your server.
+7. Get your **Guild ID** (Server ID): Enable Developer Mode in Discord settings, right-click your Server icon, and click "Copy Server ID".
+
+---
+
+## 🚀 2. Installation
+
+Clone the repository and install the dependencies (Python 3.10+ required):
 
 ```bash
 python3 -m venv .venv
@@ -32,131 +41,105 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. Create config files
+*(Note for Ubuntu VPS: Ensure you have installed `python3-venv` and system dependencies if Playwright prompts for them via `playwright install-deps`).*
+
+---
+
+## ⚙️ 3. Configuration
+
+Copy the example configuration files:
 
 ```bash
 cp config.example.json config.json
 cp .env.example .env
 ```
 
-Update:
-
-- `config.json` for non-secret runtime settings and initial targets
-- `.env` for Discord webhook, Discord bot token, and any local overrides
-
-### 3. Provision worker accounts
-
-Interactive account management:
-
-```bash
-python -m tw_alpha_scraper accounts add
-python -m tw_alpha_scraper accounts login
-python -m tw_alpha_scraper accounts list
+**Edit `.env`** with your credentials:
+```env
+DISCORD_ALERT_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_BOT_TOKEN=your-bot-token-here
+DISCORD_GUILD_ID=123456789012345678  # Your Server ID (NOT the webhook ID)
+DISCORD_ADMIN_CHANNEL_ID=0           # Optional: Restrict commands to specific channel
 ```
 
-Manual cookie injection:
+**Edit `config.json`** for runtime settings and initial targets.
 
+---
+
+## 🔑 4. Adding a Twitter Worker Account
+
+Because Twitter aggressively blocks automated logins from Datacenter/VPS IPs, the most reliable method is to grab cookies from your local browser and inject them into the VPS.
+
+**Step A: Get Cookies (Local Machine)**
+1. Run `python local_login.py` on your local PC.
+2. A browser will open. Log in to your burner Twitter account manually.
+3. Once on the homepage, press `Enter` in the terminal. It will output your `auth_token` and `ct0` cookies.
+
+**Step B: Inject Cookies (VPS / Server)**
+Run the manual addition script and paste the cookie string when prompted:
 ```bash
 python -m tw_alpha_scraper accounts manual-add
 ```
-
-Helper scripts are still available:
-
+Verify the account is active:
 ```bash
-python local_login.py
-python vps_login_stealth.py
-python setup.py add
-python setup.py login
+python -m tw_alpha_scraper accounts list
 ```
 
-## Runtime Commands
+---
 
-Initialize the app DB:
+## 🗄️ 5. Initialize & Test
 
+Initialize the SQLite database and seed initial targets:
 ```bash
 python -m tw_alpha_scraper init-db
 ```
 
-Import old `state.json` data:
-
+Test a single synchronization without sending Discord alerts (bootstraps the database):
 ```bash
-python -m tw_alpha_scraper migrate-state
+python -m tw_alpha_scraper sync-target @elonmusk
 ```
 
-Check worker and service health:
-
+Force a sync and test the Discord Webhook alert:
 ```bash
-python -m tw_alpha_scraper health-check
+python -m tw_alpha_scraper sync-target @elonmusk --send-alerts
 ```
 
-Sync one target once:
+---
 
-```bash
-python -m tw_alpha_scraper sync-target 44196397
-python -m tw_alpha_scraper sync-target @example --send-alerts
-```
+## 🖥️ 6. Production Deployment (systemd)
 
-Run the full service:
+To run the monitor and Discord bot 24/7 on an Ubuntu VPS:
 
-```bash
-python -m tw_alpha_scraper run
-```
+1. Ensure the project is located at `/opt/tw_alpha_scraper`.
+2. Copy the service file to systemd:
+   ```bash
+   sudo cp deploy/systemd/tw_alpha_scraper.service /etc/systemd/system/
+   ```
+3. Reload systemd and start the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now tw_alpha_scraper
+   ```
+4. Check the status:
+   ```bash
+   sudo systemctl status tw_alpha_scraper
+   ```
+5. View logs:
+   ```bash
+   sudo journalctl -u tw_alpha_scraper -f
+   ```
 
-Run monitor only, without the admin bot:
+---
 
-```bash
-python -m tw_alpha_scraper run --without-bot
-```
+## 🤖 Discord Slash Commands
 
-## Discord Commands
+Once the bot is online, you can manage the scraper directly from Discord:
 
-- `/status`
-- `/targets list`
-- `/targets add`
-- `/targets remove`
-- `/pause`
-- `/resume`
+- `/status` - View current health, active targets, and last sync time.
+- `/targets list` - List all tracked accounts.
+- `/targets add <username>` - Add a new Twitter account to track.
+- `/targets remove <username>` - Stop tracking an account.
+- `/pause` - Pause the monitoring loop.
+- `/resume` - Resume the monitoring loop.
 
-Access is controlled by `discord.admin_channel_id` and/or `discord.admin_role_ids`. If neither is set, the bot falls back to users with the `Manage Guild` permission.
-
-## Data Model
-
-The app SQLite database contains:
-
-- `targets`
-- `monitor_state`
-- `follow_events`
-- `worker_health`
-- `admin_actions`
-
-`accounts.db` remains owned by `twscrape` and is not replaced.
-
-## Monitor Behavior
-
-- First sync for a target bootstraps the latest known follow and does not spam the backlog.
-- New alerts are deduped by `(target_user_id, followed_user_id)` at the database layer.
-- Polling uses bounded retries, timeout protection, and small jitter between targets.
-- Worker pool health is exposed via `health-check` and `/status`.
-
-## Deploy on Ubuntu VPS
-
-1. Clone the repo to a fixed path such as `/opt/tw_alpha_scraper`.
-2. Create `.venv`, install requirements, and install Playwright Chromium.
-3. Create `config.json` and `.env`.
-4. Add worker accounts manually.
-5. Copy `deploy/systemd/tw_alpha_scraper.service` and update the absolute paths.
-6. Enable the service:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now tw_alpha_scraper
-sudo systemctl status tw_alpha_scraper
-```
-
-## Testing
-
-```bash
-pytest -q
-```
-
-The automated tests cover config loading, access policy, database dedupe, bootstrap/no-backlog behavior, and retry recovery with fake Twitter/Discord integrations.
+*(Note: Target checking is subject to Twitter's rate limits. The scraper enforces a cooldown to protect your worker accounts).*
